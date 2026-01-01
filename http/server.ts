@@ -1,6 +1,6 @@
 import express from "express";
-import {  AddStudentSchema, CreateClassSchema, LoginSchema, SignupSchema } from "./types";
-import { ClassModel, UserModel } from "./schema";
+import {  AddStudentSchema, AttendanceStartSchema, CreateClassSchema, LoginSchema, SignupSchema } from "./types";
+import { AttendanceModel, ClassModel, UserModel } from "./schema";
 import jwt from "jsonwebtoken";
 import { authMiddleware, teacherRoleMiddleware } from "./middleware";
 import mongoose from "mongoose";
@@ -8,6 +8,8 @@ const app = express();
 const port = 3000;
 
 app.use(express.json());
+
+let actvieSessions : {classId:string, startedAt:Date,attendance: Record<string,string>}|null =null;
 
 app.post("/auth/signup",async (req,res)=>{
     const {success, data} = SignupSchema.safeParse(req.body);
@@ -140,6 +142,13 @@ app.post("/class/:id/add-student",authMiddleware,teacherRoleMiddleware,async(req
     })
     return;
     }
+    if(classRoom.teacherId !== req.userId) {
+        res.status(403).json({
+            "success":false,
+            "error":"Forbidden, not class teacher"
+        })
+        return;
+    }
     const user = await UserModel.findOne({
         _id:studentId
     })
@@ -165,6 +174,125 @@ app.post("/class/:id/add-student",authMiddleware,teacherRoleMiddleware,async(req
     })
 })
 app.get("/class/:id",authMiddleware,async(req,res)=>{
-    
+    const classRoom = await ClassModel.findOne({
+        _id:req.params._id
+    })
+    if(!classRoom){
+        res.status(404).json({
+            "success":false,
+            "error":"Class not found"
+        })
+        return;
+    }
+    if(classRoom.teacherId === req.userId || classRoom.studentIds.map(x=>x.toString()).includes(req.userId!)){
+        const students = await UserModel.find({
+            _id:classRoom.studentIds
+        })
+        res.status(200).json({
+            "success":true,
+            "data":{
+                "_id":classRoom._id,
+                "className":classRoom.className,
+                "teacherId":classRoom.teacherId,
+                "students": students.map(s=>({
+                    _id:s._id,
+                    name:s.name,
+                    email:s.email
+                })
+                )
+            }
+        })
+    }
+    else{
+        res.status(404).json({
+            "success":false,
+            "error":"Forbidden"
+        })
+    }
+
+
+})
+app.get("students",authMiddleware,teacherRoleMiddleware,async(req,res)=>{
+    const students = await UserModel.find({
+        role:"student"
+    })
+    res.status(200).json({
+        "success":true,
+        "data":students.map(s=>({
+            _id:s._id,
+            name:s.name,
+            email:s.email
+        }))
+    })
+})
+app.get("/class/:id/my-attendance",authMiddleware,async(req,res)=>{
+    const classId = req.params._id;
+    const userId = req.userId;
+    const classRoom = await ClassModel.findOne({
+        _id:classId
+    })
+    if(!classRoom){
+        res.status(403).json({
+            "success":false,
+            "error":"Class not found"
+        })
+        return;
+    }
+    const attendance = await AttendanceModel.findOne({
+        classId:classId,
+        studentid:userId
+    })
+    if(attendance){
+        res.status(200).json({
+            "success":true,
+            "data":{
+                "classId":classId,
+                "status":"present"
+            }
+        })
+        return;
+    }else{
+        res.status(200).json({
+            "success":true,
+            "data":{
+                "classId":classId,
+                "status":null
+            }
+        })
+        return;
+    }
+})
+app.get("/attendance/start",authMiddleware,teacherRoleMiddleware,async(req,res)=>{
+    const {success,data} = AttendanceStartSchema.safeParse(req.body);
+    if(!success){
+        res.status(400).json({
+            "success":false,
+            "error":"Invalid request schema"
+        })
+        return;
+    }
+    const classRoom = await ClassModel.findOne({
+        _id:data.classId
+    })
+    if(!classRoom || classRoom.teacherId !== req.userId){
+        res.status(401).json({
+            "success":false,
+            "error":"forbidden, not class teacher"
+        })
+        return;
+    }
+    actvieSessions = {
+        classId:classRoom._id.toString(),
+        startedAt:new Date(),
+        attendance:{}
+    }
+    res.status(200).json({
+        "success":true,
+        "data":{
+            "classId":classRoom._id,
+            "startedAt":actvieSessions.startedAt
+        }
+    })
+
 })
 app.listen(port);
