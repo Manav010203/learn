@@ -9,3 +9,9 @@ export const LoginSchema = z.object({
     email:z.email(),
     password:z.string().min(6),
 })
+export const CreateClassSchema = z.object({
+    className:z.string()
+})
+export const AddStudentSchema = z.object({
+    studentId: z.string()
+})
