@@ -1,15 +1,64 @@
 import express from "express";
 import {  AddStudentSchema, AttendanceStartSchema, CreateClassSchema, LoginSchema, SignupSchema } from "./types";
 import { AttendanceModel, ClassModel, UserModel } from "./schema";
-import jwt from "jsonwebtoken";
+import jwt, { type JwtPayload } from "jsonwebtoken";
 import { authMiddleware, teacherRoleMiddleware } from "./middleware";
 import mongoose from "mongoose";
+import expressWs from "express-ws";
 const app = express();
 const port = 3000;
 
 app.use(express.json());
 
-let actvieSessions : {classId:string, startedAt:Date,attendance: Record<string,string>}|null =null;
+let actvieSessions : {classId:string, startedAt:Date,attendance: Record<string,string>,teacherId:String}|null =null;
+expressWs(app);
+let allWs:any[]=[];
+app.ws("/ws",(ws,req)=>{
+    try{
+        const token = req.query.token;
+        const {userId,role} = jwt.verify(token,process.env.JWT_PASSWORD!) as JwtPayload;
+        ws.user = {
+            userId,role
+        }
+        allWs.push(ws);
+        ws.on('close',()=>{
+            allWs  = allWs.filter(x => x !==ws);
+        })
+        ws.on('message',function(msg){
+            const message = msg.toString();
+            const parsedData = JSON.parse(message);
+            switch (parsedData.type){
+                case "ATTENDANCE_MARKED":
+                    if(!actvieSessions){
+                        ws.send(JSON.stringify({
+                            "event":"ERROR",
+                            "data":{
+                                "message":"no active sessions"
+                            }
+                        }))
+                    }else{
+                        actvieSessions.attendance[parsedData.data.studentId]= parsedData.data.status;
+                        allWs.map(ws => ws.send(JSON.stringify({
+                            "event":"ATTENDANCE_MARKED",
+                            "data":{
+                                 "studentId":parsedData.data.studentId,
+                                 "status":parsedData.data.status
+                            }
+                        })))
+                    }
+            }
+            console.log(msg);
+        })
+    }catch(e){
+        ws.send(JSON.stringify({
+            "event":"ERROR",
+            "data":{
+                "message": "Incorrect token"
+            }
+        }))
+        ws.close();
+    }
+})
 
 app.post("/auth/signup",async (req,res)=>{
     const {success, data} = SignupSchema.safeParse(req.body);
@@ -285,7 +334,8 @@ app.get("/attendance/start",authMiddleware,teacherRoleMiddleware,async(req,res)=
     actvieSessions = {
         classId:classRoom._id.toString(),
         startedAt:new Date(),
-        attendance:{}
+        attendance:{},
+        teacherID:classRoom.teacherId
     }
     res.status(200).json({
         "success":true,
