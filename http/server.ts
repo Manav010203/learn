@@ -123,7 +123,7 @@ app.post("/class",authMiddleware,teacherRoleMiddleware,async(req,res)=>{
     })
 })
 app.post("/class/:id/add-student",authMiddleware,teacherRoleMiddleware,async(req,res)=>{
-    const {success,data} = await AddStudentSchema.safeParse(req.body);
+    const {success,data} = AddStudentSchema.safeParse(req.body);
     if(!success){
         res.status(400).json({
             "success":false,
@@ -132,9 +132,7 @@ app.post("/class/:id/add-student",authMiddleware,teacherRoleMiddleware,async(req
         return;
     }
     const studentId = data.studentId;
-    const classRoom = await ClassModel.findOne({
-        _id:req.params._id
-    })
+    const classRoom = await ClassModel.findById(req.params.id);
     if(!classRoom){
         res.status(404).json({
         "success": false,
@@ -142,7 +140,7 @@ app.post("/class/:id/add-student",authMiddleware,teacherRoleMiddleware,async(req
     })
     return;
     }
-    if(classRoom.teacherId !== req.userId) {
+    if(classRoom.teacherId?.toString() !== req.userId) {
         res.status(403).json({
             "success":false,
             "error":"Forbidden, not class teacher"
@@ -160,6 +158,9 @@ app.post("/class/:id/add-student",authMiddleware,teacherRoleMiddleware,async(req
     return;
     }
     //Concurrency issue check
+    // const find = classRoom.studentIds.map(s=>if(s.toString()==studentId){
+
+    // })
     classRoom.studentIds.push(new mongoose.Types.ObjectId(studentId));
     await classRoom.save();
 
